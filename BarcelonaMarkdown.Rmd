@@ -1,0 +1,64 @@
+
+```{r}
+library(spdep)
+library(elevatr)
+library(sf)
+library(spData)
+library(ggplot2)
+library(leaflet)
+library(terra)
+library(giscoR)
+library(ggmap)
+library(mapview)
+library(tmap)
+library(spatialreg)
+```
+
+#Creating geomtetry points
+```{r}
+barcelona_weekdays 
+bar_sf <- st_as_sf(barcelona_weekdays, coords = c("lng", "lat"), crs = 4326)
+bar_sf
+st_geometry(bar_sf)
+st_crs(bar_sf)
+```
+
+```{r}
+# Create a spatial weights matrix using distance-based criterion
+unb <- knn2nb(knearneigh(bar_sf, k = 5))
+lw <- nb2listw(unb, style = "W")
+
+# Perform Moran's I test
+moran <- moran.test(bar_sf$guest_satisfaction_overall, listw = lw, randomisation=TRUE, alternative="two.sided")
+
+# View Moran's I test results
+moran
+
+```
+```{r}
+lwB <- nb2listw(unb, style="B")
+car1 <- spautolm( data=bar_sf, listw=lwB, family="CAR")
+summary(car1, Nagelkerke=TRUE)
+
+```
+
+
+
+
+
+
+
+
+```{r}
+(bar_sf |> poly2nb(queen=FALSE,
+ row.names=bar_sf$geometry) -> pom_rook_nb)
+mf_map(bar_sf, var="density", type="choro", breaks="geom",
+ nbreaks=7)
+```
+```{r}
+geom <- st_geometry(bar_sf) 
+plot(geom, border="grey")
+
+plot(unb, geom, add=TRUE)
+```
+
