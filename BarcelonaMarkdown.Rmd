@@ -4,6 +4,7 @@ library(spdep)
 library(elevatr)
 library(sf)
 library(spData)
+library(tidyverse)
 library(ggplot2)
 library(leaflet)
 library(terra)
@@ -14,51 +15,95 @@ library(tmap)
 library(spatialreg)
 ```
 
+```{r}
+boxplot(bar_sf$dist)
+boxplot(bar_sf$attr_index)
+boxplot(bar_sf$realSum)
+
+```
+
+
 #Creating geomtetry points
 ```{r}
-barcelona_weekdays 
+barcelona_weekdays
+
 bar_sf <- st_as_sf(barcelona_weekdays, coords = c("lng", "lat"), crs = 4326)
-bar_sf
 st_geometry(bar_sf)
 st_crs(bar_sf)
 ```
 
+# Evelation points
 ```{r}
-# Create a spatial weights matrix using distance-based criterion
-unb <- knn2nb(knearneigh(bar_sf, k = 5))
-lw <- nb2listw(unb, style = "W")
-
-# Perform Moran's I test
-moran <- moran.test(bar_sf$guest_satisfaction_overall, listw = lw, randomisation=TRUE, alternative="two.sided")
-
-# View Moran's I test results
-moran
-
-```
-```{r}
-lwB <- nb2listw(unb, style="B")
-car1 <- spautolm( data=bar_sf, listw=lwB, family="CAR")
-summary(car1, Nagelkerke=TRUE)
+bar_sf |>  get_elev_raster(z = 7,
+ clip = "locations", neg_to_na = TRUE) |> 
+ rast() -> bar_elev
 
 ```
 
-
-
-
-
-
+##visualisation
+```{r}
+plot(bar_elev, col=rev(hcl.colors(50, "Dark Mint")),res=1)
+plot(st_geometry(bar_sf), add=TRUE)
+text(st_coordinates(st_centroid(st_geometry(bar_sf))))
+```
 
 
 ```{r}
-(bar_sf |> poly2nb(queen=FALSE,
- row.names=bar_sf$geometry) -> pom_rook_nb)
-mf_map(bar_sf, var="density", type="choro", breaks="geom",
- nbreaks=7)
+mapview(bar_sf, zcol="realSum")
 ```
+
 ```{r}
 geom <- st_geometry(bar_sf) 
 plot(geom, border="grey")
 
-plot(unb, geom, add=TRUE)
+
 ```
+```{r}
+bar_sf |> st_geometry_type() |> table() -> tab5; tab5[tab5>0]
+
+```
+
+
+## Moran I test under randomisation
+```{r}
+#spatial weights matrix using distance-based criterion
+unb <- knn2nb(knearneigh(bar_sf, k = 5))
+lw <- nb2listw(unb, style = "W")
+
+moran <- moran.test(bar_sf$guest_satisfaction_overall, listw = lw, randomisation=TRUE, alternative="two.sided")
+
+moran
+
+```
+
+## Moran I test under normality
+
+```{r}
+lm_null <- lm(guest_satisfaction_overall ~ 1, data=bar_sf)
+moran.test(residuals(lm_null), listw=lw,
+ randomisation=FALSE, alternative="two.sided")
+
+```
+```{r}
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + log(bar_sf$dist) +  bar_sf$person_capacity  + log(bar_sf$attr_index) + bar_sf$room_shared + bar_sf$room_type
+  
+  
+lm_obj_pre <- lm(form_pre, data=bar_sf)
+moran.test(residuals(lm_obj_pre), listw=lw,
+ randomisation=FALSE, alternative="two.sided")
+
+```
+
+```{r}
+lm.RStests(lm_obj_pre, listw=lw, test="all")
+```
+
+
+
+
+
+
+
+
+
 
