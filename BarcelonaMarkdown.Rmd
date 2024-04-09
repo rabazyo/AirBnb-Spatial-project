@@ -39,29 +39,24 @@ bar_sf |>  get_elev_raster(z = 7,
  rast() -> bar_elev
 
 ```
-
-##visualisation
 ```{r}
-plot(bar_elev, col=rev(hcl.colors(50, "Dark Mint")),res=1)
-plot(st_geometry(bar_sf), add=TRUE)
-text(st_coordinates(st_centroid(st_geometry(bar_sf))))
+(bar_sf|> knearneigh(k=5) |>
+ knn2nb(row.names=bar_sf$...1) -> bar_nb)
+bar_nb |> nb2lines(coords=st_geometry(bar_sf)
+ ) -> bar_nb_sf
 ```
 
-
+#visualisation
 ```{r}
-mapview(bar_sf, zcol="realSum")
-```
-
-```{r}
-geom <- st_geometry(bar_sf) 
-plot(geom, border="grey")
+mapview(bar_sf) + mapview(bar_nb_sf, color="red4")
 
 
 ```
-```{r}
-bar_sf |> st_geometry_type() |> table() -> tab5; tab5[tab5>0]
 
+```{r}
+mapview(bar_sf, zcol="guest_satisfaction_overall")
 ```
+
 
 
 ## Moran I test under randomisation
