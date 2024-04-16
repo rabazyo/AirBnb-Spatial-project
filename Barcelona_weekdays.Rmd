@@ -1,0 +1,124 @@
+---
+title: "Barcelona_weekdays"
+output: html_document
+date: "2024-04-16"
+---
+
+```{r}
+barcelona_weekdays <- read_csv("data sets/barcelona_weekdays.csv")
+```
+
+
+```{r}
+library(spdep)
+library(elevatr)
+library(sf)
+library(spData)
+library(tidyverse)
+library(ggplot2)
+library(leaflet)
+library(terra)
+library(giscoR)
+library(ggmap)
+library(mapview)
+library(tmap)
+library(spatialreg)
+library(BAR)
+```
+
+```{r}
+boxplot(bar_sf$dist)
+boxplot(bar_sf$attr_index)
+boxplot(bar_sf$realSum)
+
+```
+
+```{r}
+barcelona_weekdays
+
+bar_sf <- st_as_sf(barcelona_weekdays, coords = c("lng", "lat"), crs = 4326)
+st_geometry(bar_sf)
+st_crs(bar_sf)
+```
+
+# Evelation points
+
+```{r}
+bar_sf |>  get_elev_raster(z = 7,
+ clip = "locations", neg_to_na = TRUE) |> 
+ rast() -> bar_elev
+
+```
+
+```{r}
+(bar_sf|> knearneigh(k=5) |>
+ knn2nb(row.names=bar_sf$...1) -> bar_nb)
+bar_nb |> nb2lines(coords=st_geometry(bar_sf)
+ ) -> bar_nb_sf
+```
+
+#visualisation
+
+```{r}
+mapview(bar_sf) + mapview(bar_nb_sf, color="red4")
+```
+
+```{r}
+mapview(bar_sf, zcol="guest_satisfaction_overall")
+```
+
+## Moran I test under randomisation
+
+```{r}
+#spatial weights matrix using distance-based criterion
+unb <- knn2nb(knearneigh(bar_sf, k = 5))
+lw <- nb2listw(unb, style = "W")
+
+moran <- moran.test(bar_sf$guest_satisfaction_overall, listw = lw, randomisation=TRUE, alternative="two.sided")
+
+moran
+```
+
+## Moran I test under normality
+```{r}
+lm_null <- lm(guest_satisfaction_overall ~ 1, data=bar_sf)
+moran.test(residuals(lm_null), listw=lw,
+ randomisation=FALSE, alternative="two.sided")
+
+```
+
+```{r}
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + log(bar_sf$dist) +  bar_sf$person_capacity  + log(bar_sf$attr_index) + bar_sf$room_shared + bar_sf$room_type
+  
+  
+lm_obj_pre <- lm(form_pre, data=bar_sf)
+moran.test(residuals(lm_obj_pre), listw=lw,
+ randomisation=FALSE, alternative="two.sided")
+
+```
+
+
+
+
+```{r}
+lm.RStests(lm_obj_pre, listw=lw, test="all")
+```
+
+
+## CAR
+
+
+```{r}
+lwB <- nb2listw(unb, style="B")
+car1 <- spautolm(form_pre, data=bar_sf, listw=lwB, family="CAR")
+summary(car1, Nagelkerke=TRUE)
+```
+
+
+```{r}
+library(hglm)
+W <- as(lwB, "CsparseMatrix")
+car2 <- hglm(fixed=form_pre, random= ~ 1|ID, data=bar_sf, family = gaussian(), rand.family=CAR(D=W))
+car2
+```
+
