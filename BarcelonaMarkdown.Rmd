@@ -8,11 +8,15 @@ library(tidyverse)
 library(ggplot2)
 library(leaflet)
 library(terra)
+library(lmtest)
 library(giscoR)
 library(ggmap)
 library(mapview)
 library(tmap)
 library(spatialreg)
+library(hglm)
+library(plot.matrix)
+library(viridis)
 ```
 
 ```{r}
@@ -90,7 +94,7 @@ moran.test(residuals(lm_null), listw=lw,
 ```
 ```{r}
 
-form_pre <- ubar_sf$guest_satisfaction_overall ~ ubar_sf$realSum  + ubar_sf$host_is_superhost +ubar_sf$attr_index + ubar_sf$room_private + ubar_sf$room_type + ubar_sf$room_shared +ubar_sf$person_capacity + ubar_sf$attr_index_norm +ubar_sf$metro_dist + ubar_sf$dist + ubar_sf$rest_index
+form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum)  + ubar_sf$host_is_superhost +ubar_sf$attr_index  + ubar_sf$person_capacity  + ubar_sf$dist 
   
 lm_obj_pre <- lm(form_pre, data=ubar_sf)
 moran.test(residuals(lm_obj_pre), listw=lw,
@@ -108,8 +112,38 @@ moran.test(residuals(lm_obj_pre), listw=lw,
 ```{r}
 
 lwB <- nb2listw(unb, style="B")
-car1 <- spautolm(form_pre1, data=bar_nb_sf, listw=lwB, family="CAR")
+car1 <- spautolm(form_pre, data=bar_nb_sf, listw=lwB, family="CAR")
 summary(car1, Nagelkerke=TRUE)
+```
+# Spatial autoregressive models
+```{r}
+ubar_sf$ranef_ml <- car1$fit$signal_stochastic
+W <- as(lwB, "CsparseMatrix")
+car2 <- hglm(fixed=form_pre, random= ~ 1|...1, data=ubar_sf, family = gaussian(), rand.family=CAR(D=W))
+car2
+```
+
+
+```{r}
+sar1B <- spautolm(form_pre, data=ubar_sf, listw=lwB, family="SAR")
+summary(sar1B, Nagelkerke=TRUE)
+```
+
+```{r}
+lw <- nb2listw(unb, style="W")
+e <- eigenw(lw)
+sar1 <- spautolm(form_pre, data=ubar_sf, listw=lw, family="SAR", control=list(pre_eig=e))
+summary(sar1, Nagelkerke=TRUE)
+```
+```{r}
+form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum)  + ubar_sf$host_is_superhost +ubar_sf$attr_index  + ubar_sf$person_capacity  + ubar_sf$dist + ubar_sf$metro_dist
+```
+
+
+
+```{R}
+SEM_pre <- errorsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig=e))
+summary(SEM_pre, Nagelkerke=TRUE)
 ```
 
 
@@ -117,3 +151,41 @@ summary(car1, Nagelkerke=TRUE)
 
 
 
+
+
+```{r}
+GNM_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig1=e, pre_eig2=e))
+SAC_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e))
+SDEM_pre <- errorsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SDM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SLM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig=e))
+SLX_pre <- lmSLX(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop))
+OLS_pre <- lm(form_pre, data=ubar_sf)
+```
+
+
+```{r}
+mlist_pre <- list(GNM=GNM_pre, SAC=SAC_pre, SDEM=SDEM_pre, SDM=SDM_pre, SLX=SLX_pre, SEM=SEM_pre, SLM=SLM_pre, OLS=OLS_pre)
+m <- length(mlist_pre)
+LR_pre <- matrix(NA, ncol=m, nrow=m)
+colnames(LR_pre) <- rownames(LR_pre) <- names(mlist_pre)
+for (j in 2:m) LR_pre[1, j] <- lrtest(mlist_pre[[1]],
+    mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in 6:8) LR_pre[2, j] <- lrtest(mlist_pre[[2]],
+    mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in c(5, 6, 8)) LR_pre[3, j] <- lrtest(mlist_pre[[3]],
+    mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in c(5:8)) LR_pre[4, j] <- lrtest(mlist_pre[[4]],
+    mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (i in 5:7) LR_pre[i, 8] <- lrtest(mlist_pre[[i]],
+    mlist_pre[[8]])[[2, "Pr(>Chisq)"]]
+
+```
+
+
+```{r}
+opar <- par(mar=c(3.1, 3.1, 3.1, 7.1), cex.axis=0.8)
+plot(LR_pre, breaks=c(0, 10^-(8:0)), col=viridis, las=1)
+
+
+```
