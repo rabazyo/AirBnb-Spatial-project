@@ -55,7 +55,7 @@ summary_table <- gt(summary_df) %>%
   tab_spanner(label = "Summary Statistics") %>%
   tab_header(
     title = "Summary Statistics",
-    subtitle = "Table displaying summary statistics for Amsterdam dataset"
+    subtitle = "Table displaying summary statistics for Berlin dataset"
   )
 
 # Print the summary table
