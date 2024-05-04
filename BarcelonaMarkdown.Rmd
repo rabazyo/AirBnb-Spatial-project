@@ -23,7 +23,7 @@ library(sphet)
 
 
 
-#Creating geomtetry points
+#Creating geometry points
 ```{r}
 barcelona_weekdays <- read_csv("data sets/barcelona_weekdays.csv")
 
