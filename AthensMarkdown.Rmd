@@ -1,0 +1,291 @@
+---
+title: "Athens.Markdown"
+output: html_document
+date: "2024-05-03"
+---
+
+```{r}
+library(spdep)
+library(elevatr)
+library(sf)
+library(spData)
+library(tidyverse)
+library(ggplot2)
+library(leaflet)
+library(terra)
+library(lmtest)
+library(giscoR)
+library(ggmap)
+library(mapview)
+library(tmap)
+library(spatialreg)
+library(hglm)
+library(plot.matrix)
+library(viridis)
+```
+
+```{r}
+#Combining Weekdays and Weekends Datasets for Athens into a single dataframe
+athens_weekdays <- read.csv("~/Airbnb data/athens_weekdays.csv")
+athens_weekends <- read.csv("~/Airbnb data/athens_weekends.csv")
+athens <- rbind(athens_weekdays, athens_weekends)
+str(athens)
+library(gt)
+```
+
+```{r}
+
+# Creating data frame to  the summary statistics
+#Excluding non-numeric variables
+summary_df <- data.frame(
+  Variable = names(athens)[-c(1:7)],  
+  Minimum = sapply(athens[, -c(1:7)], min),  
+  Q1 = sapply(athens[, -c(1:7)], quantile, probs = 0.25),  
+  Median = sapply(athens[, -c(1:7)], median),  
+  Mean = sapply(athens[, -c(1:7)], mean),  
+  Q3 = sapply(athens[, -c(1:7)], quantile, probs = 0.75),
+  Maximum = sapply(athens[, -c(1:7)], max) 
+)
+
+# Create a gt table
+summary_table <- gt(summary_df) %>%
+  tab_spanner(label = "Summary Statistics") %>%
+  tab_header(
+    title = "Summary Statistics",
+    subtitle = "Table displaying summary statistics for Athens dataset"
+  )
+print(summary_table)
+#
+# Visualize data distributions of key values: realSum, cleanliness_rating, guest_satisfaction_overall, dist, and metro_dist
+par(mfrow = c(3, 2))  # Set up a 3x2 grid for plots
+# Histograms
+hist(athens$realSum, main = "Distribution of Total Price", xlab = "Total Price (realSum)", col = "pink")
+hist(athens$cleanliness_rating, main = "Distribution of Cleanliness Rating", xlab = "Cleanliness Rating", col = "lightgreen")
+hist(athens$guest_satisfaction_overall, main = "Distribution of Guest Satisfaction", xlab = "Overall Guest Satisfaction", col = "salmon")
+hist(athens$dist, main = "Distribution of Distance from City Center", xlab = "Distance (km)", col = "lightyellow")
+hist(athens$metro_dist, main = "Distribution of Distance from Metro", xlab = "Distance (km)", col = "lavender")
+```
+
+
+
+```{r}
+# Box plots
+boxplot(athens$realSum, main = "Box Plot of Total Price", col = "pink")
+# Box plot for cleanliness rating
+boxplot(athens$cleanliness_rating, main = "Box Plot of Cleanliness Rating", col = "lightgreen")
+# Box plot for guest satisfaction overall
+boxplot(athens$guest_satisfaction_overall, main = "Box Plot of Guest Satisfaction Overall", col = "salmon")
+# Box plot for distance from city center
+boxplot(athens$dist, main = "Box Plot of Distance from City Center", col = "lightyellow")
+# Box plot for distance from metro station
+boxplot(athens$metro_dist, main = "Box Plot of Distance from Metro Station", col = "lavender")
+```
+
+
+```{r}
+#Creating geomtetry points
+
+bar_sf <- st_as_sf(athens, coords = c("lng", "lat"), crs = 4326)
+ubar_sf <- unique(bar_sf)
+st_geometry(bar_sf)
+st_crs(bar_sf)
+
+# Evelation points
+bar_sf |>  get_elev_raster(z = 7,
+                           clip = "locations", neg_to_na = TRUE) |> 
+  rast() -> bar_elev
+
+#removing identical points
+duplicate_rows <- duplicated(st_coordinates(ubar_sf))
+
+# Keep only unique rows
+ubar_sf <- ubar_sf[!duplicate_rows, ]
+
+#Creating neighbouring o
+(ubar_sf|> knearneigh(k=5) |>
+    knn2nb(row.names=ubar_sf$...1) -> ubar_nb)
+ubar_nb |> nb2lines(coords=st_geometry(ubar_sf)
+) -> bar_nb_sf
+
+#visualisation
+mapview(bar_sf) + mapview(bar_nb_sf, color="red4")
+
+mapview(bar_sf, zcol="guest_satisfaction_overall")
+```
+
+```{r}
+# LEAFLET MAP for visualisation
+# Load the required package
+library(leaflet)
+
+# Create a leaflet map
+leaflet(data = athens) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lng,  # Longitude
+    lat = ~lat,  # Latitude
+    radius = 3,  # Adjust the size of the dots as needed
+    color = "salmon",  # Color of the dots
+    fillOpacity = 0.7,  # Opacity of the dots
+    popup = ~paste("Guest Satisfaction Overall:", guest_satisfaction_overall)
+  ) %>%
+  addLegend("bottomright", 
+            colors = "salmon", 
+            labels = "Guest Satisfaction Overall",
+            opacity = 0.7)
+```            
+
+  
+```{r}          
+# Spatial weights matrix using distance-based criterion
+unb <- knn2nb(knearneigh(ubar_sf, k = 5))
+lw <- nb2listw(unb, style = "W")
+
+moran <- moran.test(ubar_sf$guest_satisfaction_overall, listw = lw, randomisation = TRUE, alternative = "two.sided")
+moran
+
+lm_null <- lm(guest_satisfaction_overall ~ 1, data = ubar_sf)
+moran.test(residuals(lm_null), listw = lw, randomisation = FALSE, alternative = "two.sided")
+
+form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum) + ubar_sf$host_is_superhost + ubar_sf$attr_index + ubar_sf$person_capacity + ubar_sf$dist
+lm_obj_pre <- lm(form_pre, data = ubar_sf)
+moran.test(residuals(lm_obj_pre), listw = lw, randomisation = FALSE, alternative = "two.sided")
+
+lm.RStests(lm_obj_pre, listw = lw, test = "all")
+```
+
+```{r}
+# Create symmetric spatial weights
+unb <- knn2nb(knearneigh(ubar_sf, k = 5), sym = TRUE)
+lwB <- nb2listw(unb, style = "B")
+# Fit the CAR model with symmetric weights
+car1 <- spautolm(form_pre, data = bar_nb_sf, listw = lwB, family = "CAR")
+summary(car1, Nagelkerke = TRUE)
+
+
+ubar_sf$ranef_ml <- car1$fit$signal_stochastic
+W <- as(lwB, "CsparseMatrix")
+car2 <- hglm(fixed=form_pre, random= ~ 1|X, data=ubar_sf, family = gaussian(), rand.family=CAR(D=W))
+car2
+```
+
+
+```{r}
+sar1B <- spautolm(form_pre, data = ubar_sf, listw = lwB, family = "SAR")
+summary(sar1B, Nagelkerke = TRUE)
+
+lw <- nb2listw(unb, style = "W")
+e <- eigenw(lw)
+sar1 <- spautolm(form_pre, data = ubar_sf, listw = lw, family = "SAR", control = list(pre_eig = e))
+summary(sar1, Nagelkerke = TRUE)
+```
+
+```{r}
+form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum) + ubar_sf$host_is_superhost + ubar_sf$attr_index + ubar_sf$person_capacity + ubar_sf$dist + ubar_sf$metro_dist
+
+SEM_pre <- errorsarlm(form_pre, data = ubar_sf, listw = lw, control = list(pre_eig = e))
+summary(SEM_pre, Nagelkerke = TRUE)
+```
+
+
+```{r}
+GNM_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig1=e, pre_eig2=e))
+SAC_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e))
+SDEM_pre <- errorsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SDM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SLM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig=e))
+SLX_pre <- lmSLX(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop))
+OLS_pre <- lm(form_pre, data=ubar_sf)
+```
+
+
+```{r}
+mlist_pre <- list(GNM=GNM_pre, SAC=SAC_pre, SDEM=SDEM_pre, SDM=SDM_pre, SLX=SLX_pre, SEM=SEM_pre, SLM=SLM_pre, OLS=OLS_pre)
+m <- length(mlist_pre)
+LR_pre <- matrix(NA, ncol=m, nrow=m)
+colnames(LR_pre) <- rownames(LR_pre) <- names(mlist_pre)
+for (j in 2:m) LR_pre[1, j] <- lrtest(mlist_pre[[1]],
+                                      mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in 6:8) LR_pre[2, j] <- lrtest(mlist_pre[[2]],
+                                      mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in c(5, 6, 8)) LR_pre[3, j] <- lrtest(mlist_pre[[3]],
+                                             mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (j in c(5:8)) LR_pre[4, j] <- lrtest(mlist_pre[[4]],
+                                         mlist_pre[[j]])[[2, "Pr(>Chisq)"]]
+for (i in 5:7) LR_pre[i, 8] <- lrtest(mlist_pre[[i]],
+                                      mlist_pre[[8]])[[2, "Pr(>Chisq)"]]
+
+```
+
+
+#Spatial Autoregressive Model Fitting
+```{r}
+opar <- par(mar=c(3.1, 3.1, 3.1, 7.1), cex.axis=0.8)
+plot(LR_pre, breaks=c(0, 10^-(8:0)), col=viridis, las=1)
+
+
+## Bayesian Estimation
+SAC_pre_maj <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), llprof=40)
+SAC_track <- capture.output(sac <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), quiet=FALSE))
+c(SAC_pre_maj$rho, SAC_pre_maj$lambda)
+```
+
+```{r}
+c(SAC_pre_maj$rho/SAC_pre_maj$rho.se, SAC_pre_maj$lambda/SAC_pre_maj$lambda.se)
+```
+
+```{r}
+m <- -matrix(SAC_pre_maj$llprof$ll, 40, 40)
+con <- textConnection(SAC_track)
+sac_track <- read.table(con, skip=14)
+close(con)
+contour(SAC_pre_maj$llprof$xseq, SAC_pre_maj$llprof$yseq, m, levels=quantile(c(m), seq(0,1,0.1)), xlab="rho", ylab="lambda", col="blue4")
+abline(h=SAC_pre_maj$rho, v=SAC_pre_maj$lambda, lwd=3, col="lightgreen")
+lines(sac_track$V2, sac_track$V4, col="darkred")
+```
+## bayesian estimation
+```{r}
+set.seed(12345)
+SAC_bayes <- spBreg_sac(form_pre, data=ubar_sf, listw=lw, control=list(ndraw=20000L, nomit=2000L))
+```
+
+```{r}
+summary(SAC_bayes[, c("rho", "lambda", "sige")])
+```
+
+```{r}
+opar <- par(mfrow=c(2, 1)) 
+plot(SAC_bayes[, c("rho", "lambda", "sige")], smooth=TRUE)
+```
+##3 GMM estimation  
+```{r}
+library(spatialreg)
+SAC_gmm <- lagsarlm(form_pre, data = ubar_sf, listw = lw)
+# Extracting coefficients and s2
+c(coef(SAC_gmm)[c("lambda", "rho")], s2 = SAC_gmm$s2)
+```
+
+
+```{r}
+# Box plots
+boxplot(amsterdam$realSum, main = "Box Plot of Total Price", col = "pink")
+# Box plot for cleanliness rating
+boxplot(amsterdam$cleanliness_rating, main = "Box Plot of Cleanliness Rating", col = "lightgreen")
+# Box plot for guest satisfaction overall
+boxplot(amsterdam$guest_satisfaction_overall, main = "Box Plot of Guest Satisfaction Overall", col = "salmon")
+# Box plot for distance from city center
+boxplot(amsterdam$dist, main = "Box Plot of Distance from City Center", col = "lightyellow")
+# Box plot for distance from metro station
+boxplot(amsterdam$metro_dist, main = "Box Plot of Distance from Metro Station", col = "lavender")
+```
+
+
+```{r}
+#Creating geomtetry points
+
+bar_sf <- st_as_sf(amsterdam, coords = c("lng", "lat"), crs = 4326)
+ubar_sf <- unique(bar_sf)
+st_geometry(bar_sf)
+st_crs(bar_sf)
+```
+
