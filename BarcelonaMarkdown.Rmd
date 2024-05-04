@@ -105,7 +105,7 @@ moran.test(residuals(lm_null), listw=lw,
 ## model creation
 ```{r From_pre}
 
-form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$person_capacity + bar_sf$room_type   + log(bar_sf$dist) + bar_sf$rest_index_norm + bar_sf$attr_index_norm
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$person_capacity+bar_sf$bedrooms + bar_sf$room_type   + log(bar_sf$dist) + bar_sf$rest_index + bar_sf$attr_index + bar_sf$multi + bar_sf$biz
   
 lm_obj_pre <- lm(form_pre, data=bar_sf)
 moran.test(residuals(lm_obj_pre), listw=lw,
