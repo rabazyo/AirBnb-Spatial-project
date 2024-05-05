@@ -27,8 +27,8 @@ library(viridis)
 
 ```{r}
 #Combining Weekdays and Weekends Datasets for Amsterdam into a single dataframe
-lisbon_weekdays <- read.csv("~/Airbnb data/lisbon_weekdays.csv")
-lisbon_weekends <- read.csv("~/Airbnb data/lisbon_weekends.csv")
+lisbon_weekdays <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/lisbon_weekdays.csv")
+lisbon_weekends <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/lisbon_weekends.csv")
 lisbon <- rbind(lisbon_weekdays, lisbon_weekends)
 str(lisbon)
 ```
@@ -93,7 +93,6 @@ boxplot(lisbon$metro_dist, main = "Box Plot of Distance from Metro Station", col
 #Creating geomtetry points
 
 bar_sf <- st_as_sf(lisbon, coords = c("lng", "lat"), crs = 4326)
-ubar_sf <- unique(bar_sf)
 st_geometry(bar_sf)
 st_crs(bar_sf)
 ```
@@ -104,20 +103,15 @@ bar_sf |>  get_elev_raster(z = 7,
                            clip = "locations", neg_to_na = TRUE) |> 
   rast() -> bar_elev
 
-#removing identical points
-duplicate_rows <- duplicated(st_coordinates(ubar_sf))
-
-# Keep only unique rows
-ubar_sf <- ubar_sf[!duplicate_rows, ]
 ```
 
 
 ```{r}
 #Creating neighbouring o
-(ubar_sf|> knearneigh(k=5) |>
-    knn2nb(row.names=ubar_sf$...1) -> ubar_nb)
-ubar_nb |> nb2lines(coords=st_geometry(ubar_sf)
-) -> bar_nb_sf
+(bar_sf|> knearneigh(k=26) |>
+ knn2nb(row.names=bar_sf$...1, sym = TRUE) -> bar_nb)
+bar_nb |> nb2lines(coords=st_geometry(bar_sf)
+ ) -> bar_nb_sf
 ```
 
 ```{r}

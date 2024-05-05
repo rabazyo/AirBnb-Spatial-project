@@ -26,9 +26,7 @@ library(viridis)
 
 ```{r}
 #Combining Weekdays and Weekends Datasets for Amsterdam into a single dataframe
-london_weekdays <- read.csv("~/Airbnb data/london_weekdays.csv")
-london_weekends <- read.csv("~/Airbnb data/london_weekends.csv")
-london <- rbind(london_weekdays, london_weekends)
+london <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/london_weekdays.csv")
 str(london)
 ```
 
@@ -92,7 +90,6 @@ boxplot(london$metro_dist, main = "Box Plot of Distance from Metro Station", col
 #Creating geomtetry points
 
 bar_sf <- st_as_sf(london, coords = c("lng", "lat"), crs = 4326)
-ubar_sf <- unique(bar_sf)
 st_geometry(bar_sf)
 st_crs(bar_sf)
 ```
@@ -103,20 +100,15 @@ bar_sf |>  get_elev_raster(z = 7,
                            clip = "locations", neg_to_na = TRUE) |> 
   rast() -> bar_elev
 
-#removing identical points
-duplicate_rows <- duplicated(st_coordinates(ubar_sf))
-
-# Keep only unique rows
-ubar_sf <- ubar_sf[!duplicate_rows, ]
 ```
 
 
 ```{r}
 #Creating neighbouring o
-(ubar_sf|> knearneigh(k=5) |>
-    knn2nb(row.names=ubar_sf$...1) -> ubar_nb)
-ubar_nb |> nb2lines(coords=st_geometry(ubar_sf)
-) -> bar_nb_sf
+(bar_sf|> knearneigh(k=10) |>
+ knn2nb(row.names=bar_sf$...1, sym = TRUE) -> bar_nb)
+bar_nb |> nb2lines(coords=st_geometry(bar_sf)
+ ) -> bar_nb_sf
 ```
 
 ```{r}
@@ -147,23 +139,23 @@ leaflet(data = london) %>%
 
 ```{r}
 # Spatial weights matrix using distance-based criterion
-unb <- knn2nb(knearneigh(ubar_sf, k = 5))
+unb <- knn2nb(knearneigh(bar_sf, k = 5))
 lw <- nb2listw(unb, style = "W")
 
-moran <- moran.test(ubar_sf$guest_satisfaction_overall, listw = lw, randomisation = TRUE, alternative = "two.sided")
+moran <- moran.test(bar_sf$guest_satisfaction_overall, listw = lw, randomisation = TRUE, alternative = "two.sided")
 moran
 
-lm_null <- lm(guest_satisfaction_overall ~ 1, data = ubar_sf)
+lm_null <- lm(guest_satisfaction_overall ~ 1, data = bar_sf)
 moran.test(residuals(lm_null), listw = lw, randomisation = FALSE, alternative = "two.sided")
 
-form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum) + ubar_sf$host_is_superhost + ubar_sf$attr_index + ubar_sf$person_capacity + ubar_sf$dist
-lm_obj_pre <- lm(form_pre, data = ubar_sf)
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$attr_index + bar_sf$person_capacity + bar_sf$dist
+lm_obj_pre <- lm(form_pre, data = bar_sf)
 moran.test(residuals(lm_obj_pre), listw = lw, randomisation = FALSE, alternative = "two.sided")
 
 lm.RStests(lm_obj_pre, listw = lw, test = "all")
 
 # Create symmetric spatial weights
-unb <- knn2nb(knearneigh(ubar_sf, k = 5), sym = TRUE)
+unb <- knn2nb(knearneigh(bar_sf, k = 5), sym = TRUE)
 lwB <- nb2listw(unb, style = "B")
 # Fit the CAR model with symmetric weights
 car1 <- spautolm(form_pre, data = bar_nb_sf, listw = lwB, family = "CAR")
@@ -172,28 +164,28 @@ summary(car1, Nagelkerke = TRUE)
 
 
 ```{r}
-sar1B <- spautolm(form_pre, data = ubar_sf, listw = lwB, family = "SAR")
+sar1B <- spautolm(form_pre, data = bar_sf, listw = lwB, family = "SAR")
 summary(sar1B, Nagelkerke = TRUE)
 
 lw <- nb2listw(unb, style = "W")
 e <- eigenw(lw)
-sar1 <- spautolm(form_pre, data = ubar_sf, listw = lw, family = "SAR", control = list(pre_eig = e))
+sar1 <- spautolm(form_pre, data = bar_sf, listw = lw, family = "SAR", control = list(pre_eig = e))
 summary(sar1, Nagelkerke = TRUE)
 
-form_pre <- ubar_sf$guest_satisfaction_overall ~ log(ubar_sf$realSum) + ubar_sf$host_is_superhost + ubar_sf$attr_index + ubar_sf$person_capacity + ubar_sf$dist + ubar_sf$metro_dist
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$attr_index + bar_sf$person_capacity + bar_sf$dist + bar_sf$metro_dist
 
-SEM_pre <- errorsarlm(form_pre, data = ubar_sf, listw = lw, control = list(pre_eig = e))
+SEM_pre <- errorsarlm(form_pre, data = bar_sf, listw = lw, control = list(pre_eig = e))
 summary(SEM_pre, Nagelkerke = TRUE)
 ```
 
 ```{r}
-GNM_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig1=e, pre_eig2=e))
-SAC_pre <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e))
-SDEM_pre <- errorsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
-SDM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
-SLM_pre <- lagsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig=e))
-SLX_pre <- lmSLX(form_pre, data=ubar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop))
-OLS_pre <- lm(form_pre, data=ubar_sf)
+GNM_pre <- sacsarlm(form_pre, data=bar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig1=e, pre_eig2=e))
+SAC_pre <- sacsarlm(form_pre, data=bar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e))
+SDEM_pre <- errorsarlm(form_pre, data=bar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SDM_pre <- lagsarlm(form_pre, data=bar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop), control=list(pre_eig=e))
+SLM_pre <- lagsarlm(form_pre, data=bar_sf, listw=lw, control=list(pre_eig=e))
+SLX_pre <- lmSLX(form_pre, data=bar_sf, listw=lw, Durbin=update(form_pre, ~ . - Metrop))
+OLS_pre <- lm(form_pre, data=bar_sf)
 ```
 
 ```{r}
@@ -220,8 +212,8 @@ plot(LR_pre, breaks=c(0, 10^-(8:0)), col=viridis, las=1)
 
 
 ## Bayesian Estimation
-SAC_pre_maj <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), llprof=40)
-SAC_track <- capture.output(sac <- sacsarlm(form_pre, data=ubar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), quiet=FALSE))
+SAC_pre_maj <- sacsarlm(form_pre, data=bar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), llprof=40)
+SAC_track <- capture.output(sac <- sacsarlm(form_pre, data=bar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e), quiet=FALSE))
 c(SAC_pre_maj$rho, SAC_pre_maj$lambda)
 ```
 
@@ -243,7 +235,7 @@ lines(sac_track$V2, sac_track$V4, col="darkred")
 ## bayesian estimation
 ```{r}
 set.seed(12345)
-SAC_bayes <- spBreg_sac(form_pre, data=ubar_sf, listw=lw, control=list(ndraw=20000L, nomit=2000L))
+SAC_bayes <- spBreg_sac(form_pre, data=bar_sf, listw=lw, control=list(ndraw=20000L, nomit=2000L))
 ```
 
 ```{r}
@@ -257,7 +249,7 @@ plot(SAC_bayes[, c("rho", "lambda", "sige")], smooth=TRUE)
 ##3 GMM estimation  
 ```{r}
 library(spatialreg)
-SAC_gmm <- lagsarlm(form_pre, data = ubar_sf, listw = lw)
+SAC_gmm <- lagsarlm(form_pre, data = bar_sf, listw = lw)
 # Extracting coefficients and s2
 c(coef(SAC_gmm)[c("lambda", "rho")], s2 = SAC_gmm$s2)
 ```
