@@ -27,9 +27,8 @@ library(viridis)
 
 ```{r}
 #Combining Weekdays and Weekends Datasets for Amsterdam into a single dataframe
-berlin_weekdays <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/berlin_weekdays.csv")
-berlin_weekends <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/berlin_weekends.csv")
-berlin <- rbind(berlin_weekdays, berlin_weekends)
+berlin <- read.csv("~/GitHub/AirBnb-Spatial-project/data sets/berlin_weekdays.csv")
+
 str(berlin)
 ```
 
