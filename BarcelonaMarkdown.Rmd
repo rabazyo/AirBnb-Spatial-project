@@ -28,7 +28,7 @@ library(sphet)
 barcelona_weekdays <- read_csv("data sets/barcelona_weekdays.csv")
 
 bar_sf <- st_as_sf(barcelona_weekdays, coords = c("lng", "lat"), crs = 4326)
-bar_sf <- unique(bar_sf)
+
 st_geometry(bar_sf)
 st_crs(bar_sf)
 ```
@@ -46,7 +46,7 @@ bar_sf$host_is_superhost <- as.numeric(bar_sf$host_is_superhost)
 
 #searching for possible outliers
 ```{r}
-boxplot(bar_sf$dist)
+boxplot(bar_sf$metro_dist)
 boxplot(bar_sf$attr_index)
 boxplot(bar_sf$realSum)
 ```
@@ -105,7 +105,7 @@ moran.test(residuals(lm_null), listw=lw,
 ## model creation
 ```{r From_pre}
 
-form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$person_capacity+bar_sf$bedrooms + bar_sf$room_type   + log(bar_sf$dist) + bar_sf$rest_index + bar_sf$attr_index + bar_sf$multi + bar_sf$biz
+form_pre <- bar_sf$guest_satisfaction_overall ~ log(bar_sf$realSum) + bar_sf$host_is_superhost + bar_sf$person_capacity  + bar_sf$room_type   + bar_sf$rest_index + bar_sf$attr_index + bar_sf$multi + bar_sf$biz + log(bar_sf$metro_dist)+ log(bar_sf$dist)
   
 lm_obj_pre <- lm(form_pre, data=bar_sf)
 moran.test(residuals(lm_obj_pre), listw=lw,
@@ -126,7 +126,7 @@ summary(lm.RStests(lm_obj_pre_maj, listw=lw, test="all"))
 ```
 
 
-
+# Spatial autoregressive models
 ```{r}
 
 lwB <- nb2listw(unb, style="B")
@@ -136,13 +136,8 @@ summary(car1, Nagelkerke=TRUE)
 
 
 
-# Spatial autoregressive models
-```{r}
-bar_sf$ranef_ml <- car1$fit$signal_stochastic
-W <- as(lwB, "CsparseMatrix")
-car2 <- hglm(fixed=form_pre, random= ~ 1|...1, data=bar_sf, family = gaussian(), rand.family=CAR(D=W))
-car2
-```
+
+
 
 
 ```{r}
@@ -282,6 +277,59 @@ newdata$dist <- exp(log(newdata$dist)+1)
 p1 <- predict(OLS_pre, newdata=newdata)
 mean(p1-p0)
 ```
+
+```{r}
+form_price <- log(bar_sf$realSum) ~ bar_sf$guest_satisfaction_overall + bar_sf$host_is_superhost + bar_sf$person_capacity  + bar_sf$room_type   + bar_sf$rest_index + bar_sf$attr_index + bar_sf$multi + bar_sf$biz + log(bar_sf$metro_dist)+ log(bar_sf$dist)
+
+
+GNM_pre <- sacsarlm(form_price, data=bar_sf, listw=lw, Durbin=update(form_price, ~ . - Metrop), control=list(pre_eig1=e, pre_eig2=e))
+SAC_pre <- sacsarlm(form_price, data=bar_sf, listw=lw, control=list(pre_eig1=e, pre_eig2=e))
+SDEM_pre <- errorsarlm(form_price, data=bar_sf, listw=lw, Durbin=update(form_price, ~ . - Metrop), control=list(pre_eig=e))
+SDM_pre <- lagsarlm(form_price, data=bar_sf, listw=lw, Durbin=update(form_price, ~ . - Metrop), control=list(pre_eig=e))
+SLM_pre <- lagsarlm(form_price, data=bar_sf, listw=lw, control=list(pre_eig=e))
+SLX_pre <- lmSLX(form_price, data=bar_sf, listw=lw, Durbin=update(form_price, ~ . - Metrop))
+OLS_pre <- lm(form_price, data=bar_sf)
+```
+
+```{r}
+# Get coefficients, p-values, and R-squared for each model
+coefficients_OLS <- coef(summary(OLS_pre))
+p_values_OLS <- coefficients_OLS[, "Pr(>|t|)"]
+r_squared_OLS <- summary(OLS_pre)$r.squared
+
+coefficients_SLX <- coef(summary(SLX_pre))
+p_values_SLX <- coefficients_SLX[, "Pr(>|t|)"]
+r_squared_SLX <- summary(SLX_pre)$r.squared
+
+coefficients_SDM <- coef(summary(SDM_pre))
+p_values_SDM <- coefficients_SDM[, "Pr(>|z|)"]
+r_squared_SDM <- summary(SDM_pre)$r.squared
+
+coefficients_SAR <- coef(summary(sar1))
+p_values_SAR <- coefficients_SAR[, "Pr(>|z|)"]
+r_squared_SAR <- summary(sar1)$r.squared
+
+# Combine coefficients, p-values, and R-squared into a single data frame
+summary_combined <- data.frame(
+  Model = c("OLS", "SLX", "SDM", "SAR"),
+  R_squared = c(r_squared_OLS, r_squared_SLX, r_squared_SDM, r_squared_SAR),
+  Coefficients = c(coefficients_OLS[, "Estimate"], coefficients_SLX[, "Estimate"], coefficients_SDM[, "Estimate"], coefficients_SAR[, "Estimate"]),
+  P_value = c(p_values_OLS, p_values_SLX, p_values_SDM, p_values_SAR)
+)
+
+# Print the combined summary
+print(summary_combined)
+```
+
+
+
+
+
+
+
+
+
+
 
 
 
